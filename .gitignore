@@ -1,0 +1,12 @@
+.00/
+.vs/
+[Bb]in/
+[Oo]bj/
+[Rr]efs/
+Directory.Build.local.props
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.pdb
+*.zip

@@ -1,0 +1,86 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  Build:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup dotnet
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Read manifest
+      id: manifest
+      run: |
+        plugin_version=$(jq -r .version src/manifest.json)
+        short_sha=$(echo "${{ github.sha }}" | cut -c1-7)
+
+        echo "plugin_version=$plugin_version" >> "$GITHUB_OUTPUT"
+        echo "artifact_name=OpenXRUnderswingFix-v$plugin_version-$short_sha" >> "$GITHUB_OUTPUT"
+
+    - name: Acquire BSIPA reference
+      shell: pwsh
+      run: |
+        $response = Invoke-RestMethod -Uri "https://beatmods.com/api/mods?gameVersion=1.37.1&status=verified"
+        $entry = $response.mods | Where-Object { $_.mod.name -eq "BSIPA" } | Select-Object -First 1
+        if ($null -eq $entry) {
+          throw "No verified BSIPA version found"
+        }
+
+        Invoke-WebRequest -Uri "https://beatmods.com/cdn/mod/$($entry.latest.zipHash).zip" -OutFile "BSIPA.zip"
+        Expand-Archive -LiteralPath "BSIPA.zip" -DestinationPath "Refs" -Force
+
+        $loader = Get-ChildItem "Refs" -Filter "IPA.Loader.dll" -Recurse | Select-Object -First 1
+        if ($null -eq $loader) {
+          throw "BSIPA archive did not contain IPA.Loader.dll"
+        }
+
+        New-Item -ItemType Directory -Force -Path "Refs/Beat Saber_Data/Managed" | Out-Null
+        Copy-Item -Force $loader.FullName "Refs/Beat Saber_Data/Managed/IPA.Loader.dll"
+
+    - name: Build
+      env:
+        FrameworkPathOverride: /usr/lib/mono/4.8-api
+      run: |
+        dotnet build OpenXRUnderswingFix.sln \
+          --configuration Release \
+          -p:GameReferences="${{ github.workspace }}/Refs" \
+          -p:Version="${{ steps.manifest.outputs.plugin_version }}" \
+          -p:DisableCopyToGame=True \
+          -p:DisableZipRelease=False
+
+    - name: Check formatting
+      env:
+        FrameworkPathOverride: /usr/lib/mono/4.8-api
+        GameReferences: ${{ github.workspace }}/Refs
+      run: dotnet format whitespace OpenXRUnderswingFix.sln --verify-no-changes --no-restore
+
+    - name: Find artifact
+      id: artifact
+      run: |
+        artifact_path="$(find src/bin/Release -path '*/zip/*.zip' -type f | sort | head -n 1)"
+        if [ -z "$artifact_path" ]; then
+          echo "No release zip found" >&2
+          find src/bin/Release -maxdepth 4 -type f | sort >&2
+          exit 1
+        fi
+
+        echo "path=$artifact_path" >> "$GITHUB_OUTPUT"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.manifest.outputs.artifact_name }}
+        path: ${{ steps.artifact.outputs.path }}
+        if-no-files-found: error

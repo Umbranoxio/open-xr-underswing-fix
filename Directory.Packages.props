@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="BeatSaberModdingTools.Tasks" Version="2.0.0-beta4" />
+  </ItemGroup>
+</Project>

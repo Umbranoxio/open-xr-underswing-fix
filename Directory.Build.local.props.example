@@ -1,0 +1,16 @@
+<Project>
+  <!-- optional, used by visual studio builds -->
+  <!--
+  <PropertyGroup>
+    <OpenXRUnderswingFixGameDirectory>C:\Path\To\Beat Saber</OpenXRUnderswingFixGameDirectory>
+  </PropertyGroup>
+  -->
+
+  <!-- optional, used by ./build.sh --ssh-deploy -->
+  <!--
+  <PropertyGroup>
+    <OpenXRUnderswingFixSshTarget>user@host</OpenXRUnderswingFixSshTarget>
+    <OpenXRUnderswingFixSshBeatSaberDir>C:\Path\To\Beat Saber</OpenXRUnderswingFixSshBeatSaberDir>
+  </PropertyGroup>
+  -->
+</Project>

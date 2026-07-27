@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <ProjectGuid>{67E263BA-F7B9-4CE2-9685-9071D12FCDB5}</ProjectGuid>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Platforms>AnyCPU</Platforms>
+    <OpenXRUnderswingFixUserProjectFile>$(MSBuildProjectFullPath).user</OpenXRUnderswingFixUserProjectFile>
+    <OpenXRUnderswingFixUserBeatSaberDir Condition="'$(OpenXRUnderswingFixUserBeatSaberDir)' == '' AND Exists('$(OpenXRUnderswingFixUserProjectFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(OpenXRUnderswingFixUserProjectFile)')), '(?s)&lt;BeatSaberDir&gt;\s*(.*?)\s*&lt;/BeatSaberDir&gt;').Groups.get_Item(1).Value)</OpenXRUnderswingFixUserBeatSaberDir>
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(OpenXRUnderswingFixUserBeatSaberDir)' != ''">$(OpenXRUnderswingFixUserBeatSaberDir)</BeatSaberDir>
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(OpenXRUnderswingFixGameDirectory)' != ''">$(OpenXRUnderswingFixGameDirectory)</BeatSaberDir>
+    <GameReferences Condition="'$(GameReferences)' == '' AND '$(BeatSaberDir)' != ''">$(BeatSaberDir)</GameReferences>
+    <GameReferences Condition="'$(GameReferences)' == '' AND Exists('$(RepositoryRoot)refs\Beat Saber_Data\Managed\IPA.Loader.dll')">$(RepositoryRoot)refs</GameReferences>
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == '' AND '$(GameReferences)' != ''">$(GameReferences)</BeatSaberDir>
+    <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
+    <AssemblyName>OpenXRUnderswingFix</AssemblyName>
+    <RootNamespace>OpenXRUnderswingFix</RootNamespace>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <BSMTProjectType>BSIPA</BSMTProjectType>
+    <SignAssembly>false</SignAssembly>
+    <Configurations>Debug;Release</Configurations>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>RELEASE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+    <Optimize>false</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IPA.Loader">
+      <HintPath>$(GameReferences)\Beat Saber_Data\Managed\IPA.Loader.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="manifest.json" LogicalName="$(AssemblyName).manifest.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="OpenXRUnderswingFix.csproj.user" Condition="Exists('OpenXRUnderswingFix.csproj.user')" Visible="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <OutputCopy Include="$(OutputPath)$(AssemblyName).dll" OutputPath="Plugins\$(AssemblyName).dll" />
+    <OutputCopy Include="$(OutputPath)$(AssemblyName).pdb" OutputPath="Plugins\$(AssemblyName).pdb" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BeatSaberModdingTools.Tasks">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
