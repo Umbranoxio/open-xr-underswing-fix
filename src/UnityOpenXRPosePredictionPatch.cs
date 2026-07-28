@@ -152,7 +152,7 @@ namespace OpenXRUnderswingFix {
 
         private static long GetDisplayPeriod() {
             float refreshRate = Convert.ToSingle(Type
-                .GetType("UnityEngine.XR.XRDevice, UnityEngine.XRModule")
+                .GetType("UnityEngine.XR.XRDevice, UnityEngine.VRModule")
                 ?.GetProperty("refreshRate")
                 ?.GetValue(null));
             return refreshRate <= 0
