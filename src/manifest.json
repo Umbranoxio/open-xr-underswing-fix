@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/nike4613/ModSaber-MetadataFileSchema/master/Schema.json",
   "author": "Umbranox",
-  "description": "Fixes OpenXR underswing by removing Unity's extra pose-prediction interval",
+  "description": "Fixes OpenXR underswing by matching the old runtime pose prediction paths",
   "gameVersion": "1.37.1",
   "id": "OpenXRUnderswingFix",
   "name": "OpenXR Underswing Fix",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "dependsOn": {
     "BSIPA": "^4.3.6"
   }

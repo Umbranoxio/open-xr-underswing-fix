@@ -1,45 +1,52 @@
-# potential OpenXR underswing fix
+# OpenXR underswing fix
 
-a smol but hopeful mod that hopefully fixes the underswing issue for bs versions after 1.29.1
+a client side mod which fixes controller pose jitter / underswing in Beat Saber
 
-it makes a little runtime patch to `UnityOpenXR.dll` in memory when the game starts, nothing on disk is altered
+it patches `UnityOpenXR.dll` in memory when the game starts, nothing on disk is altered
 
-i haven't reproduced the issue in-game because it's cold in australia rn and im lazy but im like 99% sure by downloading & re'ing every historical resource i could find and interrogating [meivyn](https://github.com/Meivyn) / [pulselane](https://github.com/PulseLane) a bit on discord i've narrowed it down a fair bit
+## the bug
+
+`xrWaitFrame` gives Unity `T` (`predictedDisplayTime`) and `P` (`predictedDisplayPeriod`)
+
+Unity uses `T` for before render input and `T + P` for dynamic input, bs reads dynamic controller state during its normal update
+
+`T` is already predicted and `P` moves it another frame ahead. runtimes can change `P` with frame timing, if it shrinks faster than `T` advances then the requested pose time goes backwards for a frame
 
 ## the patch
 
-`xrWaitFrame` gives Unity `T` (`predictedDisplayTime`) and `P` (`predictedDisplayPeriod`). Unity saves `T` for before render input and `T + P` for dynamic input, which is what bs uses for saber motion
-
-`T + P` is valid for a pipelined next frame. The problem is bs uses this sample as current saber input
-
-The unity decomp pretty much boils down to:
+unity stores:
 
 ```c
 context->beforeRenderTime = T;
 context->dynamicTime = P == XR_INFINITE_DURATION ? T : T + P;
 ```
 
-Both steamvr and oculus use that absolute `xrLocateSpace` time for controller prediction
+the patch makes dynamic input use:
 
-the native helper stores:
-
-```asm
-mov [context + 0x28], rax  ; T + P
+```c
+if (P == XR_INFINITE_DURATION)
+    dynamicTime = T;
+else if (runtime == SteamVR)
+    dynamicTime = T + fixedDisplayPeriod;
+else
+    dynamicTime = T;
 ```
 
-the patch stores:
+SteamVR keeps one extra frame of prediction with a fixed period, matching its normal OpenVR game pose without using the changing `P`
 
-```asm
-mov [context + 0x28], rdx  ; T
-```
+the fixed period follows the headset refresh rate and updates if it changes during a session
 
-The same pattern sig works on Unity OpenXR 1.9.1 and 1.14.3, if it doesnt match exactly once nothing is patched
+other runtimes use `T`, matching the old oculus provider's `Step.Render` pose
+
+if the pattern sig doesnt match exactly once it bails
 
 ## SteamVR
 
-OpenVR's `WaitGetPoses` returns one render / game pose snapshot, the game pose is already predicted an extra frame
+OpenVR's `WaitGetPoses` returns render and game pose snapshots, bs used the game pose before OpenXR
 
-so i cracked open SteamVR 1.15.10 and 1.15.11 side by side:
+the normal game pose is one display period ahead of the render pose
+
+SteamVR 1.15.10 and 1.15.11 calculate that pose in different places:
 
 ```c
 /* 1.15.10 */
@@ -50,9 +57,9 @@ poseId = renderPoseId;
 P = (extraIntervals + 1) * displayPeriod;
 ```
 
-1.15.10 asks for the OpenVR game pose. 1.15.11 asks for the earlier render pose then reports the missing time as `P`, Unity adds it back later
+1.15.10 asks for the later pose itself. 1.15.11 asks for the render pose and reports the missing time as `P`, Unity adds it back for dynamic input
 
-SteamVR 2.10.2 picks `P` like this:
+SteamVR 2.10.2 calculates `P` like this:
 
 ```c
 P = waitThread == beginThread
@@ -60,42 +67,61 @@ P = waitThread == beginThread
     : (throttle + 1) * displayPeriod;
 ```
 
-The first path is the 2.10.2 "fix" that was implemented awhile back. Unity OpenXR calls `xrWaitFrame` then `xrBeginFrame` in the same native function so this is what bs uses
+Unity OpenXR calls `xrWaitFrame` and `xrBeginFrame` from the same native function, so bs gets the first path
 
-I also wouldn't say that 1.15.12 is a clean control either, slinkstr later tested it against 2.12.2 on bs 1.40.5 and [took the claim back](https://github.com/Meivyn/BeatSaberBugs/issues/8#issuecomment-3029307105)
+that value can shrink with frame timing while `xrLocateSpace` still accepts the resulting timestamp. the SteamVR patch keeps the same extra frame with a fixed display period instead
 
-## Oculus
+1.15.12 isnt a clean control either, slinkstr later compared it with 2.12.2 on bs 1.40.5 and [took the claim back](https://github.com/Meivyn/BeatSaberBugs/issues/8#issuecomment-3029307105)
 
-not as easy to do historical analysis on oculus (if u old have binaries dm me)
-but i checked out the current `LibOVRRTImpl64_1.dll` and its `xrWaitFrame` path is:
+## oculus
+
+~~not as easy to do historical analysis on oculus (if u old have binaries dm me)~~
+
+thanks to [whatdahopper](https://github.com/whatdahopper) sending me this i could verify the old oculus path
+
+OpenXR became official in v19, so i cracked open v18 and v20
+
+`xrWaitFrame` has the same CFG in both:
 
 ```c
 T = ovr_GetPredictedDisplayTime(session, frameIndex);
 P = 1000000000 / refreshRate;
 ```
 
-Then `xrLocateSpace` does:
+the oculus provider in 1.29.1 does:
+
+```c
+ovrp_Update2(-1, frameIndex, 0);
+
+T = ovr_GetPredictedDisplayTime(session, frameIndex);
+renderPose = ovr_GetTrackingState(session, T, true);
+```
+
+bs reads that cached `Step.Render` pose
+
+the OpenXR path in both runtimes passes its requested time straight through:
 
 ```c
 seconds = time / 1000000000.0;
 tracking = ovr_GetTrackingState(session, seconds, false);
 ```
 
-ovr then feeds the supplied time into its pose predictor:
+the predictor is the same in v18, v20, v65 and current:
 
 ```c
 prediction = clamp(time - sampleTime, 0, 0.25);
 ```
 
-one display period is well below that clamp and unitys `T + P` asks for controller tracking one refresh interval after the frame oculus already predicted
-
-this doesnt 100% confirm that oculus has the same issue but at the very least dropping `P` will definitely change controller prediction there too
+the extra period comes from Unity's dynamic input caller, so the non SteamVR patch uses `T`
 
 ## references
 
 - [the original underswing investigation](https://github.com/Meivyn/BeatSaberBugs/issues/8)
+- [oculus gestalt archive](https://github.com/BnuuySolutions/Oculus-Gestalt-Collection)
+- [oculus making OpenXR official in v19](https://communityforums.atmeta.com/t5/OpenXR-Development/OpenXR-News-and-Feedback-Thread/td-p/765004/page/2)
 - [SteamVR 1.15.10 notes](https://steamdb.info/patchnotes/5839127/)
 - [SteamVR 1.15.11 notes](https://steamdb.info/patchnotes/5856452/)
 - [SteamVR 2.10.2 notes](https://steamdb.info/patchnotes/17946446/)
 - [Valve talking about moving cadence into `xrWaitFrame`](https://steamcommunity.com/app/250820/discussions/8/3001046778348674981/)
+- [Unity XR display lifecycle](https://docs.unity3d.com/2022.3/Documentation/Manual/xrsdk-display.html)
 - [OpenXR 1.1 spec](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html)
