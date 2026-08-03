@@ -5,7 +5,7 @@
   "gameVersion": "1.37.1",
   "id": "OpenXRUnderswingFix",
   "name": "OpenXR Underswing Fix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "dependsOn": {
     "BSIPA": "^4.3.6"
   }

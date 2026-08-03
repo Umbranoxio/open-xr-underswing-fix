@@ -24,7 +24,8 @@ namespace OpenXRUnderswingFix {
         private static Timer refreshTimer;
         private static IntPtr patchAddress;
         private static long displayPeriod;
-        private static bool useFixedDisplayPeriod;
+        private static bool isSteamVr;
+        private static DisplayRefreshRateTracker refreshRateTracker;
 
         [DllImport("UnityOpenXR", EntryPoint = "NativeConfig_GetRuntimeName")]
         private static extern bool GetRuntimeName(out IntPtr runtimeName);
@@ -70,7 +71,6 @@ namespace OpenXRUnderswingFix {
 
         internal static void Enable() {
             lock (Sync) {
-                displayPeriod = GetDisplayPeriod();
                 if (!TryApply()) {
                     retryTimer = new Timer(Retry, null, 250, 250);
                 }
@@ -81,10 +81,13 @@ namespace OpenXRUnderswingFix {
             lock (Sync) {
                 refreshTimer?.Dispose();
                 refreshTimer = null;
+                refreshRateTracker = null;
                 retryTimer?.Dispose();
                 retryTimer = null;
 
                 if (patchAddress == IntPtr.Zero) {
+                    displayPeriod = 0;
+                    isSteamVr = false;
                     return;
                 }
 
@@ -92,6 +95,8 @@ namespace OpenXRUnderswingFix {
                     using Process process = Process.GetCurrentProcess();
                     WriteBytes(process, patchAddress, PoseTimesSignature);
                     patchAddress = IntPtr.Zero;
+                    displayPeriod = 0;
+                    isSteamVr = false;
                 } catch (Exception ex) {
                     Plugin.Log.Warn($"restore failed: {ex.Message}");
                 }
@@ -120,12 +125,22 @@ namespace OpenXRUnderswingFix {
         }
 
         private static void UpdateDisplayPeriod() {
-            long updatedDisplayPeriod = GetDisplayPeriod();
+            float refreshRate = GetDisplayRefreshRate();
             lock (Sync) {
-                if (!useFixedDisplayPeriod ||
+                if (!isSteamVr ||
                     refreshTimer == null ||
-                    updatedDisplayPeriod == 0 ||
-                    updatedDisplayPeriod == displayPeriod) {
+                    refreshRateTracker == null) {
+                    return;
+                }
+
+                int trustedRefreshRate = refreshRateTracker.Observe(refreshRate);
+                if (trustedRefreshRate == 0) {
+                    return;
+                }
+
+                long updatedDisplayPeriod = (long)Math.Round(
+                    NanosecondsPerSecond / (double)trustedRefreshRate);
+                if (updatedDisplayPeriod == displayPeriod) {
                     return;
                 }
 
@@ -150,14 +165,11 @@ namespace OpenXRUnderswingFix {
             }
         }
 
-        private static long GetDisplayPeriod() {
-            float refreshRate = Convert.ToSingle(Type
+        private static float GetDisplayRefreshRate() {
+            return Convert.ToSingle(Type
                 .GetType("UnityEngine.XR.XRDevice, UnityEngine.VRModule")
                 ?.GetProperty("refreshRate")
                 ?.GetValue(null));
-            return refreshRate <= 0
-                ? 0
-                : (long)Math.Round(NanosecondsPerSecond / (double)refreshRate);
         }
 
         private static bool TryApply() {
@@ -178,15 +190,12 @@ namespace OpenXRUnderswingFix {
                 return false;
             }
 
-            useFixedDisplayPeriod = runtimeName.IndexOf(
+            isSteamVr = runtimeName.IndexOf(
                 "SteamVR",
                 StringComparison.OrdinalIgnoreCase) >= 0;
-            if (useFixedDisplayPeriod && refreshTimer == null) {
+            if (isSteamVr && refreshTimer == null) {
+                refreshRateTracker = new DisplayRefreshRateTracker();
                 refreshTimer = new Timer(QueueRefreshRateCheck, null, 1000, 1000);
-            }
-
-            if (useFixedDisplayPeriod && displayPeriod == 0) {
-                return false;
             }
 
             try {
@@ -236,11 +245,11 @@ namespace OpenXRUnderswingFix {
                 WriteBytes(
                     process,
                     address,
-                    CreatePatch(useFixedDisplayPeriod ? displayPeriod : 0));
+                    CreatePatch(isSteamVr ? displayPeriod : 0));
                 patchAddress = address;
 
                 long patchOffset = address.ToInt64() - runtimeModule.BaseAddress.ToInt64();
-                string prediction = useFixedDisplayPeriod
+                string prediction = displayPeriod != 0
                     ? $"{NanosecondsPerSecond / (double)displayPeriod:0.##}hz"
                     : "render time";
                 Plugin.Log.Info($"patched {runtimeName} at +0x{patchOffset:X} ({prediction})");

@@ -27,14 +27,16 @@ the patch makes dynamic input use:
 if (P == XR_INFINITE_DURATION)
     dynamicTime = T;
 else if (runtime == SteamVR)
-    dynamicTime = T + fixedDisplayPeriod;
+    dynamicTime = refreshRateIsTrusted ? T + fixedDisplayPeriod : T;
 else
     dynamicTime = T;
 ```
 
 SteamVR keeps one extra frame of prediction with a fixed period, matching its normal OpenVR game pose without using the changing `P`
 
-the fixed period follows the headset refresh rate and updates if it changes during a session
+Unity's reported refresh rate can fall to the current render cadence under load. the patch only uses a whole rate after 30 matching samples and ignores obvious throttled fractions, until then it uses `T`
+
+refresh changes during a session go through the same check
 
 other runtimes use `T`, matching the old oculus provider's `Step.Render` pose
 
